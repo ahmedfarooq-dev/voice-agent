@@ -13,6 +13,7 @@ from pipecat.frames.frames import EndWorkerFrame, FunctionCallResultProperties, 
 from pipecat.services.llm_service import FunctionCallParams
 
 import booking
+import notify
 from prompt import (
     appointment_minutes,
     appointment_title,
@@ -96,6 +97,9 @@ async def book_appointment(
             {"success": False, "error": "Booking failed. Apologise and offer to take a message."}
         )
         return
+    notify.notify_booking(
+        company_name(), name, result["spoken"], email, phone, business_name, result.get("link", "")
+    )
     await params.result_callback(
         {"success": True, "when": result["spoken"], "note": "The calendar invite has been emailed."}
     )
@@ -125,6 +129,7 @@ async def take_message(params: FunctionCallParams, name: str, phone: str, messag
     with MESSAGES_FILE.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
     logger.info(f"Message saved: {record}")
+    notify.notify_message(company_name(), name, phone, message)
     await params.result_callback({"success": True})
 
 

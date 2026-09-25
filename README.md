@@ -12,6 +12,9 @@ mic/phone → Silero VAD + Smart Turn → Deepgram Nova-3 (speech-to-text) → L
 
 ## How a new client is set up
 
+Full step-by-step runbook, including server, HTTPS, Google Calendar, Twilio and the
+acceptance test: [docs/ONBOARDING.md](docs/ONBOARDING.md). Short version:
+
 1. Give the client `docs/Client-Intake-Template.docx`. They fill it in Word.
    Anything in [square brackets] is guidance and is ignored by the agent.
 2. Save the filled file into `server/knowledge/`. Remove any old client's file.
