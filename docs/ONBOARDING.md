@@ -177,6 +177,11 @@ On the client's Ubuntu server, as root or with sudo:
 
 Run this script on **both** website and phone. Everything must pass before handover.
 
+**Testers must wear headphones on the website test.** With open speakers the microphone
+hears the agent's own voice, the agent waits for "the caller" to finish, and it looks
+frozen. This is not a bug in the agent; phone lines cancel echo and most laptops do too,
+but a loud speaker next to a microphone will always reproduce it.
+
 | # | Say | Expect |
 |---|---|---|
 | 1 | (nothing, just connect) | Greeting names the company and the agent, within 2 s |

@@ -102,7 +102,8 @@ class VoiceWidget {
         enableMic: true,
         enableCam: false,
         callbacks: {
-          onBotReady: () => this.setStatus("listening", "Listening… go ahead and speak"),
+          onBotReady: () =>
+            this.setStatus("listening", "Listening… go ahead and speak", "Headphones give the best experience."),
           onBotStartedSpeaking: () => this.setStatus("speaking", "Speaking… (you can interrupt)"),
           onBotStoppedSpeaking: () => this.setStatus("listening", "Listening…"),
           onUserStartedSpeaking: () => this.setStatus("listening", "Hearing you…"),
