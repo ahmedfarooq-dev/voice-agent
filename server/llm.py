@@ -62,6 +62,44 @@ def build_llm(system_instruction: str) -> "FallbackLLMService":
     return FallbackLLMService(providers, system_instruction)
 
 
+class _IndexedStream:
+    """Wraps a streaming response so every tool-call delta carries an ``index``.
+
+    OpenAI and Groq number parallel tool calls 0, 1, 2...; Gemini's OpenAI-compatible
+    endpoint sends ``index=None``. Pipecat's parser uses the index to notice when a
+    new call starts, and ``None`` makes it register a phantom nameless call first,
+    which poisons the conversation history (both providers then reject it with 400).
+    Here each distinct tool-call id gets a sequential index instead.
+    """
+
+    def __init__(self, stream):
+        self._stream = stream
+
+    def __aiter__(self):
+        return self._normalised()
+
+    async def _normalised(self):
+        index_by_id: dict[str, int] = {}
+        current = -1
+        async for chunk in self._stream:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            for tc in (delta.tool_calls if delta and delta.tool_calls else []):
+                if tc.index is not None:
+                    continue
+                if tc.id:
+                    if tc.id not in index_by_id:
+                        index_by_id[tc.id] = len(index_by_id)
+                    current = index_by_id[tc.id]
+                elif tc.function and tc.function.name:
+                    current += 1  # a new call with no id at all
+                tc.index = max(current, 0)
+            yield chunk
+
+    async def close(self):
+        if hasattr(self._stream, "close"):
+            await self._stream.close()
+
+
 def _worth_retrying(e: Exception) -> bool:
     """Try the next provider unless the failure is our own credentials.
 
@@ -123,9 +161,10 @@ class FallbackLLMService(OpenAILLMService):
         for i in candidates:
             provider = self._providers[i]
             try:
-                return await self._clients[i].chat.completions.create(
+                stream = await self._clients[i].chat.completions.create(
                     **self._params_for(provider, base)
                 )
+                return _IndexedStream(stream)
             except Exception as e:
                 last_error = e
                 if isinstance(e, APIStatusError) and e.status_code == 400:
