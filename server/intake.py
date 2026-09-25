@@ -129,7 +129,112 @@ def load_intake(folder: Path = KNOWLEDGE_DIR) -> Intake:
     return intake
 
 
+WORD_BUDGET = 3000
+SUSPICIOUS = [
+    r"\bTBD\b", r"\bTODO\b", r"\bxxx+\b", r"placeholder", r"lorem ipsum", r"\bN/A\b",
+    r"\?\?+", r"https?://", r"click here", r"\[|\]", r"ask (razi|the owner|the client)",
+]
+
+
+def check(folder: Path = KNOWLEDGE_DIR) -> bool:
+    """Pre-flight check for a client's document. Returns True when safe to go live."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    from booking import parse_bookable_hours
+
+    problems: list[tuple[str, str]] = []  # (level, message)
+
+    def fail(msg: str) -> None:
+        problems.append(("FAIL", msg))
+
+    def warn(msg: str) -> None:
+        problems.append(("WARN", msg))
+
+    ignored = [
+        p.name for p in folder.glob("*")
+        if p.is_file() and p.suffix.lower() not in (".docx", ".md", ".txt")
+        and not p.name.startswith("~$")
+    ]
+    for name in ignored:
+        fail(f"{name}: unsupported file type, the bot ignores it. Convert to the .docx template.")
+
+    doc = load_intake(folder)
+    if not doc.sources:
+        fail("No document found. Put the filled Client-Intake-Template.docx in server/knowledge/.")
+        return _report(problems)
+
+    # Basics the engine relies on
+    if not doc.get("company name"):
+        fail("Basics: 'Company name' is empty. The agent would call itself 'our company'.")
+    for key in ("agent's name", "greeting", "business hours, in words", "appointment name"):
+        if not doc.get(key):
+            warn(f"Basics: '{key}' is empty; a generic default will be used.")
+    tz = doc.get("timezone")
+    if not tz:
+        warn("Basics: 'Timezone' is empty; the .env default applies.")
+    else:
+        try:
+            ZoneInfo(tz)
+        except (ZoneInfoNotFoundError, ValueError):
+            fail(f"Basics: Timezone {tz!r} is not valid. Use a name like America/New_York.")
+    hours = doc.get("bookable hours")
+    if hours:
+        try:
+            parse_bookable_hours(hours)
+        except ValueError as e:
+            fail(f"Basics: {e}")
+    else:
+        warn("Basics: 'Bookable hours' is empty; the .env default applies.")
+    minutes = doc.get("appointment length in minutes")
+    if minutes and not re.search(r"\d", minutes):
+        fail(f"Basics: 'Appointment length in minutes' must be a number, got {minutes!r}.")
+
+    # Content
+    text = doc.knowledge + "\n" + doc.behavior
+    words = len(text.split())
+    if words > WORD_BUDGET:
+        warn(f"Document is {words} words; over {WORD_BUDGET} replies get slower and hit free-tier limits.")
+    for heading in ("About the company", "Services", "Frequently asked questions"):
+        body = re.search(rf"^# {re.escape(heading)}\n(.*?)(?=^# |\Z)", doc.knowledge, re.S | re.M)
+        if not body or not body.group(1).strip():
+            warn(f"Section '{heading}' is empty.")
+    if not doc.behavior.replace("#", "").strip() or len(doc.behavior.split()) < 12:
+        warn("'How the agent should behave' has no instructions; the engine defaults apply.")
+
+    for pattern in SUSPICIOUS:
+        for m in re.finditer(pattern, text, re.I):
+            line = text[text.rfind("\n", 0, m.start()) + 1 : text.find("\n", m.end())].strip()
+            warn(f"Suspicious text would be read aloud: \"{line[:90]}\"")
+            break  # one example per pattern is enough
+
+    return _report(problems, doc)
+
+
+def _report(problems: list[tuple[str, str]], doc: Intake | None = None) -> bool:
+    if doc:
+        print(f"Checked: {', '.join(doc.sources)}")
+        agent = doc.get("agent's name") or "(default)"
+        words = len((doc.knowledge + doc.behavior).split())
+        print(f"Company: {doc.get('company name') or '(missing)'} | Agent: {agent} | {words} words")
+    for level, msg in problems:
+        print(f"  {level}  {msg}")
+    fails = sum(1 for level, _ in problems if level == "FAIL")
+    warns = len(problems) - fails
+    if fails:
+        print(f"RESULT: NOT READY. {fails} problem(s) must be fixed, {warns} warning(s).")
+    elif warns:
+        print(f"RESULT: OK with {warns} warning(s). Review them, then go live.")
+    else:
+        print("RESULT: OK. Ready to go live.")
+    return fails == 0
+
+
 if __name__ == "__main__":
+    import sys
+
+    if "--check" in sys.argv:
+        folder = Path(sys.argv[sys.argv.index("--check") + 1]) if len(sys.argv) > sys.argv.index("--check") + 1 else KNOWLEDGE_DIR
+        sys.exit(0 if check(folder) else 1)
     i = load_intake()
     print("SOURCES:", i.sources)
     print("SETTINGS:", i.settings)

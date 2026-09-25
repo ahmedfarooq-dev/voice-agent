@@ -18,7 +18,10 @@ mic/phone → Silero VAD + Smart Turn → Deepgram Nova-3 (speech-to-text) → L
 3. Restart the bot. The "Basics" table sets the company name, agent name, timezone,
    bookable hours, appointment length and greeting; the rest becomes the agent's knowledge
    and behaviour rules.
-4. Preview what the agent will be told: `python intake.py` (parsed document) or
+4. Run the pre-flight check: `python intake.py --check`. It fails on anything that would
+   break the agent (missing company name, unsupported file, bad timezone or hours) and
+   warns about empty sections, oversized content and text that shouldn't be read aloud.
+5. Preview what the agent will be told: `python intake.py` (parsed document) or
    `python prompt.py` (full system prompt).
 
 `docs/make_template.py` regenerates the blank template, and `--codainer` writes the filled
