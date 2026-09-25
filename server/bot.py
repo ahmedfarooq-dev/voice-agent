@@ -133,9 +133,15 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     # stop_secs: silence needed before the agent treats the user's turn as finished.
     # Pipecat's default of 0.2s cuts people off mid-thought; ~0.6s feels natural.
     vad = SileroVADAnalyzer(params=VADParams(stop_secs=float(os.getenv("VAD_STOP_SECS", "0.6"))))
+    # user_turn_stop_timeout: when Smart Turn thinks the user paused mid-sentence, how
+    # long to wait for them to continue before replying anyway. Pipecat's default of 5s
+    # feels like the bot froze; 2.5s bounds the worst case.
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context,
-        user_params=LLMUserAggregatorParams(vad_analyzer=vad),
+        user_params=LLMUserAggregatorParams(
+            vad_analyzer=vad,
+            user_turn_stop_timeout=float(os.getenv("USER_TURN_STOP_TIMEOUT", "2.5")),
+        ),
     )
 
     # Pipeline - assembled from reusable components
