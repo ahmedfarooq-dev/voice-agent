@@ -63,10 +63,30 @@ def build_llm(system_instruction: str) -> "FallbackLLMService":
 
 
 def _worth_retrying(e: Exception) -> bool:
-    """Rate limits, network errors and 5xx: the provider is the problem, not the request."""
+    """Try the next provider unless the failure is our own credentials.
+
+    Rate limits, network errors and 5xx are obviously the provider's problem. A 400 can
+    also be provider-specific (e.g. Gemini's OpenAI-compatible layer rejecting a
+    conversation shape that Groq accepts), so it is worth a second opinion too.
+    Only 401/403 (bad key) is pointless to retry elsewhere.
+    """
     if isinstance(e, (RateLimitError, APIConnectionError)):
         return True
-    return isinstance(e, APIStatusError) and e.status_code >= 500
+    return isinstance(e, APIStatusError) and e.status_code not in (401, 403)
+
+
+def _describe(messages: list[dict]) -> str:
+    """Compact shape of a conversation for error logs: roles, tool calls, empties."""
+    parts = []
+    for m in messages:
+        role = m.get("role", "?")
+        if m.get("tool_calls"):
+            role += f"+{len(m['tool_calls'])}calls"
+        content = m.get("content")
+        if content in (None, ""):
+            role += "(empty)"
+        parts.append(role)
+    return " > ".join(parts)
 
 
 class FallbackLLMService(OpenAILLMService):
@@ -108,10 +128,17 @@ class FallbackLLMService(OpenAILLMService):
                 )
             except Exception as e:
                 last_error = e
+                if isinstance(e, APIStatusError) and e.status_code == 400:
+                    # Request rejected: log what we sent so the cause is diagnosable.
+                    logger.error(
+                        f"{provider.name} rejected the request: {str(e)[:600]}\n"
+                        f"  conversation shape: {_describe(base['messages'])}"
+                    )
                 if not _worth_retrying(e):
                     break
-                logger.warning(f"{provider.name} failed ({type(e).__name__}); resting it {HOLD_SECS}s")
-                self._down_until[i] = time.monotonic() + HOLD_SECS
+                logger.warning(f"{provider.name} failed ({type(e).__name__}); trying next provider")
+                if not (isinstance(e, APIStatusError) and e.status_code == 400):
+                    self._down_until[i] = time.monotonic() + HOLD_SECS
 
         await self.push_frame(TTSSpeakFrame(APOLOGY))
         raise last_error  # type: ignore[misc]
