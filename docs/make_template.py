@@ -181,6 +181,9 @@ CODAINER_SECTIONS = {
          "have them reach out."),
         ("What happens after I book?", "You'll get a calendar invite by email, and someone from the "
          "team joins at that time to map out what this would look like for your business."),
+        ("Where are you located? Do you have an office in my city?", "I don't have the office "
+         "details on hand. The team works with service businesses across the United States, and "
+         "I can have them confirm the specifics for your area on a quick call."),
     ],
     "Objections and how to answer them": [
         ("It's too expensive.", "Compare it to the cost of a missed call. For most service businesses a "

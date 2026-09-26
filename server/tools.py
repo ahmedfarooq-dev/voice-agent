@@ -133,8 +133,39 @@ async def take_message(params: FunctionCallParams, name: str, phone: str, messag
     await params.result_callback({"success": True})
 
 
+QUESTION_STARTS = (
+    "what", "how", "when", "where", "why", "who", "which", "can", "could", "do", "does",
+    "did", "is", "are", "will", "would", "should", "tell me", "any", "and",
+)
+
+
+def _last_user_text(params: FunctionCallParams) -> str:
+    for message in reversed(params.context.messages):
+        if message.get("role") != "user":
+            continue
+        content = message.get("content") or ""
+        if isinstance(content, list):  # multimodal shape: list of parts
+            content = " ".join(p.get("text", "") for p in content if isinstance(p, dict))
+        return content.strip()
+    return ""
+
+
+def _looks_like_question(text: str) -> bool:
+    t = text.lower().strip()
+    return t.endswith("?") or t.startswith(QUESTION_STARTS)
+
+
 async def end_call(params: FunctionCallParams):
-    """End the conversation. It says goodbye to the caller for you."""
+    """End the conversation. Only after the caller's LAST message was a goodbye or "that's all". Says goodbye for you."""
+    # Guard: after a goodbye the model tends to hang up on the next thing the caller
+    # says, even a question. If the last thing they said looks like a question, refuse
+    # and let the model answer it (the LLM runs again on this result).
+    last = _last_user_text(params)
+    if _looks_like_question(last):
+        await params.result_callback(
+            {"success": False, "error": "The caller just asked something. Answer it; only end the call after they say goodbye."}
+        )
+        return
     # run_llm=False: no extra LLM turn after this result. The goodbye is pushed first
     # and EndWorkerFrame after it (both downstream), so the goodbye finishes playing
     # before the session closes.
