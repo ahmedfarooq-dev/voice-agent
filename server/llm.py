@@ -26,6 +26,7 @@ HOLD_SECS = 30
 # specific tag other providers never produce). This documented placeholder skips the check.
 SKIP_SIGNATURE = {"google": {"thought_signature": "skip_thought_signature_validator"}}
 APOLOGY = "Sorry, I'm having a little trouble right now. Could you say that again?"
+EMPTY_REPLY = "Sorry, could you say that again?"
 
 
 @dataclass
@@ -62,26 +63,55 @@ def build_llm(system_instruction: str) -> "FallbackLLMService":
     return FallbackLLMService(providers, system_instruction)
 
 
-class _IndexedStream:
-    """Wraps a streaming response so every tool-call delta carries an ``index``.
+class _SafeStream:
+    """Wraps a streaming response with two guarantees Pipecat doesn't give us.
 
-    OpenAI and Groq number parallel tool calls 0, 1, 2...; Gemini's OpenAI-compatible
-    endpoint sends ``index=None``. Pipecat's parser uses the index to notice when a
-    new call starts, and ``None`` makes it register a phantom nameless call first,
-    which poisons the conversation history (both providers then reject it with 400).
-    Here each distinct tool-call id gets a sequential index instead.
+    1. Every tool-call delta carries an ``index``. OpenAI and Groq number parallel
+       tool calls 0, 1, 2...; Gemini's OpenAI-compatible endpoint sends ``index=None``.
+       Pipecat's parser uses the index to notice when a new call starts, and ``None``
+       makes it register a phantom nameless call first, which poisons the history
+       (both providers then reject it with 400). Each distinct id gets a sequential
+       index instead.
+
+    2. The agent is never silent. If the stream ends without a single word or tool
+       call (Gemini does this occasionally), ``retry`` is asked for a stream from the
+       next provider; if that is empty too, ``on_empty`` is awaited so the agent can
+       say something instead of leaving the caller wondering if the line is dead.
     """
 
-    def __init__(self, stream):
+    def __init__(self, stream, retry=None, on_empty=None):
         self._stream = stream
+        self._retry = retry
+        self._on_empty = on_empty
 
     def __aiter__(self):
-        return self._normalised()
+        return self._run()
 
-    async def _normalised(self):
+    async def _run(self):
+        produced = False
+        async for chunk in self._normalised(self._stream):
+            produced = produced or _has_content(chunk)
+            yield chunk
+        if produced:
+            return
+        if self._retry:
+            logger.warning("LLM returned an empty response; retrying on the next provider")
+            retry_stream = await self._retry()
+            if retry_stream is not None:
+                await self.close()
+                self._stream = retry_stream
+                async for chunk in self._normalised(retry_stream):
+                    produced = produced or _has_content(chunk)
+                    yield chunk
+        if not produced and self._on_empty:
+            logger.error("LLM returned an empty response from every provider")
+            await self._on_empty()
+
+    @staticmethod
+    async def _normalised(stream):
         index_by_id: dict[str, int] = {}
         current = -1
-        async for chunk in self._stream:
+        async for chunk in stream:
             delta = chunk.choices[0].delta if chunk.choices else None
             for tc in (delta.tool_calls if delta and delta.tool_calls else []):
                 if tc.index is not None:
@@ -98,6 +128,13 @@ class _IndexedStream:
     async def close(self):
         if hasattr(self._stream, "close"):
             await self._stream.close()
+
+
+def _has_content(chunk) -> bool:
+    if not chunk.choices:
+        return False
+    delta = chunk.choices[0].delta
+    return bool(delta and (delta.content or delta.tool_calls))
 
 
 def _worth_retrying(e: Exception) -> bool:
@@ -158,13 +195,27 @@ class FallbackLLMService(OpenAILLMService):
         candidates = [i for i in range(len(self._providers)) if now > self._down_until[i]] or [0]
 
         last_error: Exception | None = None
-        for i in candidates:
+        for pos, i in enumerate(candidates):
             provider = self._providers[i]
             try:
                 stream = await self._clients[i].chat.completions.create(
                     **self._params_for(provider, base)
                 )
-                return _IndexedStream(stream)
+                others = [self._providers[j] for j in candidates[pos + 1 :]]
+                clients = [self._clients[j] for j in candidates[pos + 1 :]]
+
+                async def retry(others=others, clients=clients):
+                    for p, c in zip(others, clients):
+                        try:
+                            return await c.chat.completions.create(**self._params_for(p, base))
+                        except Exception as e:  # noqa: BLE001 - best effort only
+                            logger.warning(f"{p.name} retry failed ({type(e).__name__})")
+                    return None
+
+                async def on_empty():
+                    await self.push_frame(TTSSpeakFrame(EMPTY_REPLY, append_to_context=False))
+
+                return _SafeStream(stream, retry=retry if others else None, on_empty=on_empty)
             except Exception as e:
                 last_error = e
                 if isinstance(e, APIStatusError) and e.status_code == 400:

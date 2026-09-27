@@ -20,6 +20,7 @@ Run the bot using::
 """
 
 import os
+import time
 
 import aiohttp
 from dotenv import load_dotenv
@@ -182,6 +183,24 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
         # A fixed greeting goes straight to TTS: no LLM round trip, so the caller hears
         # the company name immediately. It is also added to the context.
         await worker.queue_frames([TTSSpeakFrame(greeting())])
+
+    # Never sit silent: if the user's turn ends with nothing transcribed (mic dropped the
+    # words, a cough, background noise), say so instead of leaving them wondering.
+    last_nudge = 0.0
+
+    @user_aggregator.event_handler("on_user_turn_stopped")
+    async def on_user_turn_stopped(aggregator, strategy, message):
+        nonlocal last_nudge
+        if (message.content or "").strip():
+            return
+        now = time.monotonic()
+        if now - last_nudge < 6:  # don't nag on back-to-back noises
+            return
+        last_nudge = now
+        logger.info("User turn ended with no transcript; asking them to repeat")
+        await worker.queue_frames(
+            [TTSSpeakFrame("Sorry, I didn't catch that. Could you say it again?", append_to_context=False)]
+        )
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
