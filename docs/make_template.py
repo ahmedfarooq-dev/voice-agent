@@ -104,12 +104,9 @@ CODAINER_SECTIONS = {
         "electrical, roofing, landscaping, cleaning and pest control; dental, medical and aesthetics "
         "practices; law firms; real estate and property management; salons and spas; auto repair and "
         "detailing.",
-        "What makes us different: we are platform-agnostic, building on whatever stack fits the client, "
-        "such as GoHighLevel, Zapier, Make, n8n or custom code. We are model-agnostic, using OpenAI, "
-        "Anthropic, Google or open-source models depending on cost, speed and quality. We are "
-        "full-stack, combining automation, agentic AI, voice and chat in one connected system. And "
-        "everything is custom-built around each client's real scripts, offers and processes, never "
-        "templated.",
+        "What makes us different: platform-agnostic and model-agnostic, full-stack (automation, "
+        "agentic AI, voice and chat in one connected system), and custom-built around each client's "
+        "real scripts, offers and processes, never templated.",
         "Codainer is newly launched. Early customers get closer attention and better pricing than an "
         "established vendor would offer, and this conversation is the proof of what we build.",
     ],
@@ -126,10 +123,9 @@ CODAINER_SECTIONS = {
         "Custom chatbots: website, Instagram, Facebook and WhatsApp chatbots for lead capture, FAQs and "
         "booking, connected to the same backend as the voice agent so the business runs one consistent "
         "brain across every channel.",
-        "Result: businesses that answer every call around the clock typically convert more inbound calls "
-        "into booked appointments and lose fewer leads to missed calls. The exact impact depends on call "
-        "volume, which the team reviews on a call. We do not quote specific results until we have real "
-        "client data.",
+        "Results: businesses that answer every call around the clock typically convert more inbound "
+        "calls into booked appointments. The exact impact depends on call volume, which the team "
+        "reviews on a call. Never quote specific results; there is no client data yet.",
     ],
     "Pricing": [
         "These ranges may only be given after the pricing steps in the behaviour section. Setup cost "

@@ -35,6 +35,8 @@ async def check_availability(params: FunctionCallParams, date: str):
     Args:
         date: The day to check, in YYYY-MM-DD format.
     """
+    # Spoken immediately so the caller isn't left in silence during the calendar lookup.
+    await params.llm.push_frame(TTSSpeakFrame("Let me check that for you.", append_to_context=False))
     try:
         slots = await booking.get_slots(
             date, business_timezone(), bookable_hours(), appointment_minutes()
@@ -80,6 +82,7 @@ async def book_appointment(
             {"success": False, "error": "No valid phone number. Ask the caller for it first."}
         )
         return
+    await params.llm.push_frame(TTSSpeakFrame("One moment while I book that.", append_to_context=False))
     try:
         result = await booking.create_booking(
             start=start,

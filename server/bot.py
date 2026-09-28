@@ -28,6 +28,7 @@ from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import TTSSpeakFrame
+from pipecat.observers.user_bot_latency_observer import UserBotLatencyObserver
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -131,9 +132,10 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
 
     # Tools listed here register with the LLM automatically.
     context = LLMContext(tools=get_tools())
-    # stop_secs: silence needed before the agent treats the user's turn as finished.
-    # Pipecat's default of 0.2s cuts people off mid-thought; ~0.6s feels natural.
-    vad = SileroVADAnalyzer(params=VADParams(stop_secs=float(os.getenv("VAD_STOP_SECS", "0.6"))))
+    # stop_secs: silence before Smart Turn is asked whether the user has finished. Smart
+    # Turn handles mid-sentence pauses, so this only needs to be long enough to avoid
+    # firing on every breath; every extra 100ms here is 100ms added to every reply.
+    vad = SileroVADAnalyzer(params=VADParams(stop_secs=float(os.getenv("VAD_STOP_SECS", "0.3"))))
     # user_turn_stop_timeout: when Smart Turn thinks the user paused mid-sentence, how
     # long to wait for them to continue before replying anyway. Pipecat's default of 5s
     # feels like the bot froze; 2.5s bounds the worst case.
@@ -164,6 +166,16 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
     if isinstance(runner_args, WebSocketRunnerArguments):
         sample_rates = {"audio_in_sample_rate": 8000, "audio_out_sample_rate": 8000}
 
+    # Per-turn latency: logs how long each reply took and where the time went
+    # (endpointing wait, transcription, LLM, speech synthesis).
+    latency = UserBotLatencyObserver()
+
+    @latency.event_handler("on_latency_breakdown")
+    async def on_latency_breakdown(observer, breakdown):
+        logger.info("Turn latency: " + " | ".join(
+            line.strip() for line in breakdown.turn_contribution_lines()
+        ))
+
     worker = PipelineWorker(
         pipeline,
         params=PipelineParams(
@@ -171,6 +183,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments) -> Non
             enable_usage_metrics=True,
             **sample_rates,
         ),
+        observers=[latency],
     )
 
     runner = WorkerRunner(handle_sigint=runner_args.handle_sigint)

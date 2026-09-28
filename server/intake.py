@@ -21,6 +21,9 @@ from loguru import logger
 KNOWLEDGE_DIR = Path(__file__).parent / "knowledge"
 BEHAVIOR_HEADING = "how the agent should behave"
 BASICS_HEADING = "basics"
+# Basics rows the engine consumes directly; repeating them in the knowledge text only
+# costs tokens.
+SETTINGS_ONLY = {"greeting", "bookable hours", "appointment length in minutes", "timezone", "tone"}
 
 
 @dataclass
@@ -91,10 +94,13 @@ def _parse_docx(path: Path, intake: Intake) -> None:
                     emit(f"Q: {key}\nA: {val}")
                 elif header[:1] == ["objection"]:
                     emit(f'Objection: "{key}"\nAnswer: {val}')
+                elif current_h1 == BASICS_HEADING:
+                    intake.settings[key.lower()] = val
+                    # Pure settings go to the engine, not into the knowledge text.
+                    if key.lower() not in SETTINGS_ONLY:
+                        emit(f"{key}: {val}")
                 else:
                     emit(f"{key}: {val}")
-                    if current_h1 == BASICS_HEADING:
-                        intake.settings[key.lower()] = val
 
     intake.knowledge += "\n".join(out) + "\n"
     intake.behavior += "\n".join(behavior) + "\n"
