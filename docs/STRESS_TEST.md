@@ -65,3 +65,9 @@ For each fail: the number, what it said, and what you expected. Also note:
 - Any reply that took more than ~3 seconds to start.
 - Any moment it talked over you or cut you off.
 - Anything that sounded like a brochure rather than a person.
+
+## F. Two people on the line
+
+| # | Say | Pass if |
+|---|---|---|
+| 28 | Two of you, on speakerphone: "I'm Ahmed and this is Sara. Thursday works for me." / "No, Friday's better." | It doesn't guess: asks which day to go with, and whose name the booking is under. Never books under two names |
